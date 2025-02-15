@@ -1,0 +1,60 @@
+//Write Text File data in to Hbase from hdfs location
+import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.hadoop.hbase.{HBaseConfiguration, TableName}
+import org.apache.hadoop.hbase.client.{ConnectionFactory, Put, Table}
+import org.apache.hadoop.hbase.util.Bytes
+import org.apache.spark.sql.SparkSession
+import org.apache.hadoop.hbase.spark.HBaseContext
+
+object SparkHBaseFileExample {
+  def main(args: Array[String]): Unit = {
+    // Initialize Spark
+    val sparkConf = new SparkConf().setAppName("SparkHBaseFileExample").setMaster("local[*]")
+    val sc = new SparkContext(sparkConf)
+    val spark = SparkSession.builder().config(sparkConf).getOrCreate()
+
+    // HBase configuration
+    val hbaseConf = HBaseConfiguration.create()
+    hbaseConf.set("hbase.zookeeper.quorum", "localhost") // Replace with your Zookeeper quorum
+    hbaseConf.set("hbase.zookeeper.property.clientPort", "2181")
+
+    // Initialize HBaseContext
+    val hbaseContext = new HBaseContext(sc, hbaseConf)
+
+    // Define the table name and column family
+    val tableName = TableName.valueOf("your_table_name")
+    val columnFamily = Bytes.toBytes("cf") // Replace with your column family
+
+    // Read the text file into an RDD
+    val filePath = "path/to/your/file.txt" // Replace with the path to your text file
+    val textFileRDD = sc.textFile(filePath)
+
+    // Parse the data (assuming each line is in the format: rowKey,qualifier,value)
+    val parsedRDD = textFileRDD.map { line =>
+      val parts = line.split(",") // Split the line by delimiter (e.g., comma)
+      if (parts.length == 3) {
+        (Bytes.toBytes(parts(0)), Bytes.toBytes(parts(1)), Bytes.toBytes(parts(2)))
+      } else {
+        throw new IllegalArgumentException(s"Invalid line format: $line")
+      }
+    }
+
+    // Use HBaseContext to put data into HBase
+    hbaseContext.bulkPut[(Array[Byte], Array[Byte], Array[Byte])](
+      parsedRDD,
+      tableName,
+      (putRecord) => {
+        val put = new Put(putRecord._1) // Row key
+        put.addColumn(columnFamily, putRecord._2, putRecord._3) // Column qualifier and value
+        put
+      }
+    )
+
+    // Stop Spark context
+    sc.stop()
+  }
+}
+
+
+
+
